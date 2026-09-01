@@ -297,6 +297,34 @@ upload_post_youtube_privacy_status = "public"
 # Cross-post jobs run in the current process and are not resumed after restart.
 upload_post_max_pending_tasks = 10
 
+# Direct YouTube upload / 直接上传 YouTube
+# Uses your own Google Cloud project instead of a third-party service.
+#   1. Enable "YouTube Data API v3" in the Google Cloud console.
+#   2. Create an OAuth client of type "Desktop app" and save the downloaded JSON
+#      as storage/youtube_client_secret.json
+#   3. Install the optional dependencies: uv sync --extra youtube
+#   4. Authorize once: python cli.py --youtube-auth
+# NOTE: videos uploaded by an API project that has not passed Google's audit are
+# forced to private, whatever youtube_privacy_status says. Request an audit in
+# the Google Cloud console to publish publicly through the API.
+# The default quota allows 100 uploads per day.
+youtube_upload_enabled = false
+# Leave empty to use storage/youtube_client_secret.json and storage/youtube_token.json.
+youtube_client_secrets_file = ""
+youtube_token_file = ""
+# Available values: "public", "unlisted", or "private".
+youtube_privacy_status = "public"
+# Numeric YouTube category id. 22 is "People & Blogs".
+youtube_category_id = "22"
+youtube_made_for_kids = false
+# Extra tags added to every upload, on top of the generated hashtags.
+youtube_default_tags = []
+# Delete the local storage/tasks/<id>/ folder once a video is confirmed uploaded
+# (a real video id came back). Frees roughly 65 MB per video. Only ever applies
+# when publishing is enabled -- deleting a local video with no remote copy would
+# be irreversible data loss.
+youtube_delete_after_upload = false
+
 # =============================================================================
 # Whisper Subtitles / Whisper 字幕
 # =============================================================================

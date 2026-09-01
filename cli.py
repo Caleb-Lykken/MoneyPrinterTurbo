@@ -151,6 +151,31 @@ Examples:
   Stop after script generation:
     uv run python cli.py --video-subject "How AI is changing everyday life" --stop-at script
 
+  Generate one video per topic from a list, collecting the results:
+    uv run python cli.py --subjects-file topics.txt --batch-output-dir ./out
+
+  Write every script first, review the manifest, then render:
+    uv run python cli.py --subjects-file topics.txt --stop-at script
+    uv run python cli.py --batch-manifest storage/batches/<batch-id>/manifest.json
+
+  Authorize YouTube once, then publish each finished video:
+    uv run python cli.py --youtube-auth
+    uv run python cli.py --subjects-file topics.txt --publish
+
+Batch generation:
+  --subjects and --subjects-file generate one video per topic. Scripts for every
+  topic are written to a batch manifest first, then videos are rendered one at a
+  time. The manifest is saved after each step, so an interrupted batch can be
+  resumed by passing --batch-manifest with the same file: finished topics are
+  skipped and failed topics are retried. A topic that fails is recorded and the
+  batch continues with the next one.
+
+YouTube publishing:
+  --publish uploads each finished video through the YouTube Data API using your
+  own Google Cloud project. Run --youtube-auth once first. Videos uploaded by an
+  API project that has not passed Google's audit are forced to private
+  regardless of --youtube-privacy; the command warns when that happens.
+
 Pipeline stages:
   script     Generate or return the script.
   terms      Generate material search terms; unavailable with local materials.
@@ -164,6 +189,8 @@ Output and exit status:
   Task files are written to storage/tasks/<task-id>/. A successful command prints one
   JSON object to stdout and exits with 0. Task failures exit with 1; argument errors
   exit with 2. Runtime logs are written to stderr.
+  Batch runs print a summary object instead, and exit with 1 when any topic failed
+  to render or publish.
 """,
         formatter_class=_CliHelpFormatter,
     )
@@ -439,6 +466,109 @@ Output and exit status:
         help="use a rounded subtitle background (default: disabled)",
     )
 
+    batch_group = parser.add_argument_group("batch generation")
+    batch_group.add_argument(
+        "--subjects",
+        nargs="+",
+        default=None,
+        metavar="TOPIC",
+        help="generate one video per topic; cannot be combined with --video-subject",
+    )
+    batch_group.add_argument(
+        "--subjects-file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "UTF-8 file with one topic per line; blank lines and lines starting "
+            "with # are ignored"
+        ),
+    )
+    batch_group.add_argument(
+        "--batch-manifest",
+        default=None,
+        metavar="PATH",
+        help=(
+            "batch manifest location; an existing file is resumed, and a new batch "
+            "is written there when the file does not exist "
+            "(default: storage/batches/<batch-id>/manifest.json)"
+        ),
+    )
+    batch_group.add_argument(
+        "--bgm-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "rotate through the background music files in DIR, one per topic; "
+            "files are copied into storage/bgm on first use"
+        ),
+    )
+    batch_group.add_argument(
+        "--random-voice",
+        nargs="?",
+        const="en-US",
+        default=None,
+        metavar="LOCALE",
+        help=(
+            "pick a random voice from this locale for each topic, e.g. en-US; "
+            "voices needing an Azure V2 key are excluded "
+            "(default locale when the flag is given without a value: en-US)"
+        ),
+    )
+    batch_group.add_argument(
+        "--batch-output-dir",
+        default=None,
+        metavar="DIR",
+        help="also collect finished videos here as NN-topic-name.mp4",
+    )
+
+    publish_group = parser.add_argument_group("youtube publishing")
+    publish_group.add_argument(
+        "--youtube-auth",
+        action="store_true",
+        help=(
+            "run the one-time YouTube OAuth consent flow, store the token, and exit"
+        ),
+    )
+    publish_group.add_argument(
+        "--publish",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "upload each finished video to YouTube; use --no-publish to skip "
+            "(default: [app].youtube_upload_enabled from config.toml)"
+        ),
+    )
+    publish_group.add_argument(
+        "--delete-after-upload",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "delete the local task files once a video is confirmed uploaded; "
+            "requires publishing "
+            "(default: [app].youtube_delete_after_upload from config.toml)"
+        ),
+    )
+    publish_group.add_argument(
+        "--publish-limit",
+        type=_positive_int,
+        default=None,
+        metavar="N",
+        help=(
+            "upload at most N videos in this run, leaving the rest for a later run. "
+            "Shorts are cold-seeded to a small test audience, so publishing many at "
+            "once makes them compete with each other"
+        ),
+    )
+    publish_group.add_argument(
+        "--youtube-privacy",
+        choices=["public", "unlisted", "private"],
+        default=None,
+        help=(
+            "privacy status for uploads; unaudited API projects have uploads forced "
+            "to private by YouTube (default: [app].youtube_privacy_status)"
+        ),
+    )
+
     execution_group = parser.add_argument_group("execution")
     execution_group.add_argument(
         "--task-id",
@@ -448,8 +578,36 @@ Output and exit status:
     )
     args = parser.parse_args(argv)
 
-    if not args.video_subject.strip() and not args.video_script.strip():
-        parser.error("one of --video-subject or --video-script is required")
+    # 一次性授权与生成流程无关，跳过全部内容校验直接返回。
+    if args.youtube_auth:
+        return args
+
+    batch_sources = [
+        name
+        for name, value in (
+            ("--subjects", args.subjects),
+            ("--subjects-file", args.subjects_file),
+            ("--batch-manifest", args.batch_manifest),
+        )
+        if value
+    ]
+    if args.subjects and args.subjects_file:
+        parser.error("--subjects and --subjects-file cannot be combined")
+
+    if batch_sources:
+        # 批量模式下每个主题各自拥有文案和任务目录，单任务专用参数会产生歧义。
+        for name, value in (
+            ("--video-subject", args.video_subject.strip()),
+            ("--video-script", args.video_script.strip()),
+            ("--task-id", args.task_id),
+        ):
+            if value:
+                parser.error(f"{name} cannot be combined with {batch_sources[0]}")
+    elif not args.video_subject.strip() and not args.video_script.strip():
+        parser.error(
+            "one of --video-subject, --video-script, --subjects or "
+            "--subjects-file is required"
+        )
 
     if args.video_source == "local" and args.stop_at == "terms":
         parser.error(
@@ -466,6 +624,31 @@ Output and exit status:
         )
     if args.video_source != "local" and has_video_materials:
         parser.error("--video-materials can only be used with --video-source local")
+
+    if args.publish_limit and args.publish is False:
+        parser.error("--publish-limit cannot be combined with --no-publish")
+
+    if args.delete_after_upload and args.publish is False:
+        parser.error("--delete-after-upload cannot be combined with --no-publish")
+
+    if args.random_voice:
+        if not batch_sources:
+            parser.error(
+                "--random-voice applies to batch runs; single tasks use --voice-name"
+            )
+        if args.voice_name != DEFAULT_VOICE_NAME:
+            parser.error("--random-voice and --voice-name cannot be combined")
+
+    if args.bgm_dir:
+        if not batch_sources:
+            parser.error(
+                "--bgm-dir applies to batch runs; use --subjects or --subjects-file "
+                "(single tasks use --bgm-file)"
+            )
+        if args.bgm_file:
+            parser.error("--bgm-dir and --bgm-file cannot be combined")
+        if args.bgm_type not in (None, "custom"):
+            parser.error("--bgm-dir can only be combined with --bgm-type custom")
 
     if args.bgm_file:
         if args.bgm_type in (None, "custom"):
@@ -756,8 +939,38 @@ def prepare_cli_files(params: VideoParams, stop_at: str) -> None:
         material.url = prepared_path
 
 
+def run_batch_cli(args: argparse.Namespace) -> int:
+    """批量入口：构建一次共享参数后交给批量服务逐个主题执行。"""
+    from app.services import batch
+
+    # 续跑时视频参数以清单为准，此时不能再执行素材复制这类有副作用的准备逻辑。
+    resuming = bool(args.batch_manifest) and os.path.isfile(
+        os.path.expanduser(args.batch_manifest)
+    )
+
+    base_params = None
+    if not resuming:
+        try:
+            base_params = build_video_params(args)
+            prepare_cli_files(base_params, stop_at=args.stop_at)
+        except (ValueError, OSError) as exc:
+            logger.error(f"invalid CLI input: {exc}")
+            return 2
+
+    return batch.run_batch(args, base_params)
+
+
 def run_cli(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+
+    if args.youtube_auth:
+        from app.services import youtube
+
+        return youtube.run_auth_flow()
+
+    if args.subjects or args.subjects_file or args.batch_manifest:
+        return run_batch_cli(args)
+
     try:
         params = build_video_params(args)
         prepare_cli_files(params, stop_at=args.stop_at)

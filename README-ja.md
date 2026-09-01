@@ -14,9 +14,47 @@
 <a href="https://trendshift.io/repositories/8731" target="_blank"><img src="https://trendshift.io/api/badge/repositories/8731" alt="harry0703%2FMoneyPrinterTurbo | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://www.star-history.com/harry0703/moneyprinterturbo"><img src="https://api.star-history.com/badge?repo=harry0703/MoneyPrinterTurbo" alt="Star History Rank" style="height: 55px;" height="55"/></a>
 
-日本語 | [English](README-en.md) | [简体中文](README.md) | [リリース](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [Issues](https://github.com/harry0703/MoneyPrinterTurbo/issues)
+日本語 | [English](README.md) | [简体中文](README-zh.md) | [リリース](https://github.com/harry0703/MoneyPrinterTurbo/releases) | [Issues](https://github.com/harry0703/MoneyPrinterTurbo/issues)
 
 </div>
+
+
+---
+
+## このフォークでの変更点 🔱
+
+このフォークは、上流の MoneyPrinterTurbo に**バッチ生成と自動公開**を追加します。
+上流は 1 回の実行で 1 トピックを処理しますが、このフォークはトピックの一覧を受け取り、
+パイプライン全体を最後まで実行します。
+
+**バッチ生成** — `--subjects-file topics.txt` は各トピックの台本を再開可能な
+マニフェストに書き出し、動画を 1 本ずつレンダリングします。失敗したトピックは記録され、
+バッチは続行します。中断しても `--batch-manifest` で再実行すれば、完了済みはスキップ、
+失敗した分は再試行され、二重レンダリングは起こりません。
+
+**YouTube への直接公開** — 第三者サービスではなく、自分の Google Cloud プロジェクトから
+YouTube Data API 経由でアップロードします（`--publish`）。タイトル・説明・タグは LLM が生成し、
+すべてのアップロードで `containsSyntheticMedia` を宣言します。既に video id を持つ動画が
+再アップロードされることはありません。
+
+**バッチ UI** — `sh batch-ui.sh` で独立した Streamlit アプリ（ポート 8601、メインの
+WebUI とは独立）を開き、バッチの開始と進行状況の確認ができます。公開済み動画のパフォーマンス、
+ニッチ内で現在再生されている動画の検索、そのパターンからの新トピック生成にも対応します。
+
+**無人自動化** — `scripts/auto_daily.py` は未公開分を先に公開し、その後ニッチを調査して
+新しいトピックをレンダリングします。レンダリングと公開は別々にスケジュールできるため、
+アップロードを一度にまとめず 1 日に分散できます。
+
+**英語 Shorts 向けの既定値** — トピックごとにランダムな米国英語音声、Shorts の UI に
+隠れない字幕位置、太字のラテン系フォント、バッチ内で巡回する独自の BGM。上流の既定値は
+中国語向けのため、英語台本では読みにくくなります。
+
+**ディスク管理** — `--delete-after-upload` は YouTube がアップロードを確認した時点で
+ローカルのタスクファイルを削除します（1 本あたり約 65 MB）。
+
+以上はすべて追加的な変更で、上流の挙動は変更していません。既存のコマンドはこれまでどおり動作します。
+
+---
 
 ## スクリーンショット 🖥️
 
@@ -348,6 +386,70 @@ uv run python cli.py --video-subject "How AI is changing everyday life"
 ```shell
 uv run python cli.py --help
 ```
+
+#### ⑤ バッチ生成と YouTube への公開 📺
+
+トピックのリストから、1 トピックにつき 1 本の動画を生成します。テキストファイルに 1 行 1 トピックで記述してください（空行と `#` で始まる行は無視されます）:
+
+```shell
+uv run python cli.py --subjects-file topics.txt --batch-output-dir ./out
+```
+
+まず全トピックの台本を生成してバッチマニフェストに書き出し、その後 1 本ずつ動画をレンダリングします。マニフェストは各ステップの後に保存されるため、中断した場合は同じファイルを指定して再開できます。完了済みのトピックはスキップされ、失敗したトピックは再試行されます:
+
+```shell
+uv run python cli.py --batch-manifest storage/batches/<batch-id>/manifest.json
+```
+
+失敗したトピックは記録され、バッチは次のトピックへ進みます。`--stop-at script` を使うと、先に全ての台本を生成し、マニフェストを確認・編集してからレンダリングできます。
+
+プロジェクトの既定の音声は中国語のため、英語の台本を読ませると強い訛りになります。
+英語コンテンツでは、トピックごとにランダムな米国英語の音声を選べます:
+
+```shell
+uv run python cli.py --subjects-file topics.txt --random-voice en-US
+```
+
+Azure V2 キーが必要な音声は自動的に除外され、各トピックで選ばれた音声はマニフェストに記録されるため、再開時も同じ音声が使われます。
+
+自分の Google Cloud プロジェクトを使って、完成した動画を YouTube にアップロードするには:
+
+1. Google Cloud コンソールで **YouTube Data API v3** を有効にします。
+2. **Desktop app** タイプの OAuth クライアントを作成し、JSON を
+   `storage/youtube_client_secret.json` として保存します。
+3. オプションの依存関係をインストールします: `uv sync --extra youtube`
+4. 一度だけ認可を行います: `uv run python cli.py --youtube-auth`
+5. `config.toml` で `youtube_upload_enabled = true` を設定するか、`--publish` を指定します。
+
+```shell
+uv run python cli.py --subjects-file topics.txt --publish
+```
+
+> **注意:** Google の審査を通過していないプロジェクトが API 経由でアップロードした動画は、
+> `--youtube-privacy` の指定に関わらず**非公開**に強制されます。この場合はコマンドが警告を表示します。
+> API から公開するには Google Cloud コンソールで審査を申請するか、
+> それまでは YouTube Studio から手動で公開してください。
+
+長時間の実行はディスクを圧迫します（`storage/tasks/` に動画 1 本あたり約 65 MB）。
+`--delete-after-upload` を付けると、YouTube がアップロードを確認した時点で該当のタスクフォルダーを削除します:
+
+```shell
+uv run python cli.py --subjects-file topics.txt --publish --delete-after-upload
+```
+
+削除は実際に video id が返ってきた場合にのみ行われるため、アップロードが失敗またはスキップされたときはローカルファイルが必ず残ります。公開が無効な場合はこのオプションは無視されます。
+
+#### ⑥ バッチ UI 🖥️
+
+バッチの起動と監視を行う独立したブラウザー UI です。メインの WebUI とは独立しており、同時に実行できます:
+
+```shell
+sh batch-ui.sh
+```
+
+http://127.0.0.1:8601 で開き、トピックの一覧を入力し、音楽フォルダーを選んで実行を開始できます。
+バッチは独立したプロセスとして動作するため、ページの再読み込みやタブを閉じてもレンダリングは中断されません。
+ダッシュボードには、トピックごとのステータス、割り当てられた BGM、生成された台本、ライブログ、完成した動画、YouTube のリンクが表示されます。
 
 ## 音声合成 🗣
 

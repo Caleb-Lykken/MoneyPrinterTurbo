@@ -1,4 +1,4 @@
-"""任务目录中持久化文件的安全读写。"""
+"""任务目录与批量清单等持久化文件的安全读写。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _script_file(task_id: str) -> Path:
     return Path(utils.task_dir(task_id)) / "script.json"
 
 
-def _write_json_atomic(target: Path, payload: Mapping[str, Any]) -> None:
+def write_json_atomic(target: Path, payload: Mapping[str, Any]) -> None:
     """
     在目标目录内原子写入 JSON，避免进程中断留下半个文件。
 
@@ -58,7 +58,7 @@ def _write_json_atomic(target: Path, payload: Mapping[str, Any]) -> None:
 
 def write_script_data(task_id: str, payload: Mapping[str, Any]) -> None:
     """创建或完整替换任务的 ``script.json`` 清单。"""
-    _write_json_atomic(_script_file(task_id), payload)
+    write_json_atomic(_script_file(task_id), payload)
 
 
 def patch_script_data(task_id: str, **updates: Any) -> bool:
@@ -77,7 +77,7 @@ def patch_script_data(task_id: str, **updates: Any) -> bool:
             raise ValueError("task script data must be a JSON object")
 
         payload.update(updates)
-        _write_json_atomic(target, payload)
+        write_json_atomic(target, payload)
         return True
     except FileNotFoundError:
         # ``download_videos`` 也可能被测试、脚本或第三方代码独立调用，此时没有
