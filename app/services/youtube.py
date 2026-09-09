@@ -38,11 +38,14 @@ from app.utils import utils
 UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 # 读取自有视频统计与同领域调研所需的只读权限。
 READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
+# YouTube Analytics：平均观看百分比等留存指标。Shorts 推荐算法以留存为核心
+# 信号，仅凭播放量只能知道哪些视频赢了，不知道为什么。
+ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly"
 
 # 新增权限不会让已有 token 失效：旧 token 仍可继续上传，只是读取统计会被拒绝。
 # 因此 ensure_authorized 只校验上传能力，读取能力由 missing_scopes 单独判断，
 # 避免为了新功能而中断正在运行的发布流程。
-SCOPES = [UPLOAD_SCOPE, READONLY_SCOPE]
+SCOPES = [UPLOAD_SCOPE, READONLY_SCOPE, ANALYTICS_SCOPE]
 
 DEFAULT_CLIENT_SECRETS_FILENAME = "youtube_client_secret.json"
 DEFAULT_TOKEN_FILENAME = "youtube_token.json"

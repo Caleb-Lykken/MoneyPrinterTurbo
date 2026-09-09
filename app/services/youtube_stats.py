@@ -391,6 +391,13 @@ topics below, which performed well.
    experience, such as "I tested...", "I left a camera...", "Watch what happened
    when...", or "caught on camera". Every topic must be explainable with general
    footage. Write informational or explanatory angles instead.
+7. Favour concrete GEAR and TECHNIQUE topics: hooks, line, knots, reels, drag,
+   rigging, lures, casting, and common mistakes. These consistently outperform.
+   Avoid speculative fish-behaviour angles about colour, smell, timing of day,
+   moon phase, or "tricks" — these consistently underperform.
+8. Phrase each topic as a declarative statement ("The knot that never slips on
+   braid"), not a question ("What knot should you use?"). Declarative titles
+   earn roughly 2.5x the views of questions on this channel.
 
 ## Output example
 ["Why bass strike lures at dawn","The knot that never slips on braid"]

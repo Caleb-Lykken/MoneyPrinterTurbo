@@ -45,6 +45,18 @@ BATCH_FLAGS = [
     "--delete-after-upload",
 ]
 
+# 订阅转化率仅 0.08%。按日交替加入片尾引导语做 A/B，对照组不加；
+# 变体通过清单 base_params.video_script_prompt 可追溯，供后续按周对比。
+SUBSCRIBE_CTA_PROMPT = (
+    "End the script with one short, natural closing line inviting the viewer to "
+    "follow for a daily fishing tip. Keep it under twelve words."
+)
+
+
+def cta_variant_for_today() -> str | None:
+    """奇数日加入引导语，偶数日为对照组。"""
+    return SUBSCRIBE_CTA_PROMPT if datetime.now().day % 2 == 1 else None
+
 
 def log(message: str) -> None:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -144,7 +156,9 @@ def flush_backlog(dry_run: bool, publish_limit: int | None = None) -> int:
     for path in manifests:
         if remaining is not None and remaining <= 0:
             break
-        args = ["--batch-manifest", path, "--publish"]
+        # 发布命令必须自带清理开关：BATCH_FLAGS 只用于渲染命令，而渲染模式
+        # 又会把它剥离，导致拆分收发之后没有任何一条命令在回收已发布的成片。
+        args = ["--batch-manifest", path, "--publish", "--delete-after-upload"]
         if remaining is not None:
             args += ["--publish-limit", str(remaining)]
         before = backlog_size()
@@ -292,6 +306,12 @@ def main() -> int:
             log(f"  topic: {topic}")
 
         flags = list(BATCH_FLAGS)
+        cta = cta_variant_for_today()
+        if cta:
+            flags += ["--video-script-prompt", cta]
+            log("A/B variant: subscribe CTA ON")
+        else:
+            log("A/B variant: control (no CTA)")
         if args.mode == "render":
             # 渲染阶段不发布：成片留到分批发布任务里按节奏上传。
             for flag in ("--publish", "--delete-after-upload"):
