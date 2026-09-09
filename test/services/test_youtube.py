@@ -262,11 +262,12 @@ class TestScopeHandling(unittest.TestCase):
         with open(self.token, "w", encoding="utf-8") as handle:
             json.dump({"scopes": scopes}, handle)
 
-    def test_upload_only_token_reports_readonly_as_missing(self):
+    def test_upload_only_token_reports_the_read_scopes_as_missing(self):
         self._write_token([youtube.UPLOAD_SCOPE])
 
         self.assertEqual(
-            youtube.missing_scopes(), [youtube.READONLY_SCOPE]
+            youtube.missing_scopes(),
+            [youtube.READONLY_SCOPE, youtube.ANALYTICS_SCOPE],
         )
 
     def test_upload_only_token_can_still_publish(self):
@@ -280,9 +281,23 @@ class TestScopeHandling(unittest.TestCase):
         self.assertTrue(ok, message)
 
     def test_full_token_reports_nothing_missing(self):
-        self._write_token([youtube.UPLOAD_SCOPE, youtube.READONLY_SCOPE])
+        self._write_token(
+            [youtube.UPLOAD_SCOPE, youtube.READONLY_SCOPE, youtube.ANALYTICS_SCOPE]
+        )
 
         self.assertEqual(youtube.missing_scopes(), [])
+
+    def test_stats_token_without_analytics_still_publishes(self):
+        """新增 analytics 权限不能影响仍在运行的发布流程。"""
+        self._write_token([youtube.UPLOAD_SCOPE, youtube.READONLY_SCOPE])
+
+        with patch.object(youtube, "_client_secrets_file", return_value=__file__), patch.object(
+            youtube, "_load_credentials", return_value=MagicMock()
+        ):
+            ok, message = youtube.ensure_authorized()
+
+        self.assertTrue(ok, message)
+        self.assertEqual(youtube.missing_scopes(), [youtube.ANALYTICS_SCOPE])
 
     def test_absent_token_reports_no_granted_scopes(self):
         self.assertEqual(youtube.granted_scopes(), [])
