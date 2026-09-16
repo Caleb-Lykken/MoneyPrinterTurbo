@@ -45,17 +45,9 @@ BATCH_FLAGS = [
     "--delete-after-upload",
 ]
 
-# 订阅转化率仅 0.08%。按日交替加入片尾引导语做 A/B，对照组不加；
-# 变体通过清单 base_params.video_script_prompt 可追溯，供后续按周对比。
-SUBSCRIBE_CTA_PROMPT = (
-    "End the script with one short, natural closing line inviting the viewer to "
-    "follow for a daily fishing tip. Keep it under twelve words."
-)
-
-
-def cta_variant_for_today() -> str | None:
-    """奇数日加入引导语，偶数日为对照组。"""
-    return SUBSCRIBE_CTA_PROMPT if datetime.now().day % 2 == 1 else None
+# 片尾订阅引导已于 2026-09-15 移除：A/B 两周后开启组中位播放量 96、点赞率
+# 1.16%，对照组 172 / 1.27%，没有任何正向证据，反而占用了讲解时间。
+# 订阅瓶颈不在视频内部，而在频道页本身（简介、关键词、横幅均为空）。
 
 
 def log(message: str) -> None:
@@ -306,12 +298,6 @@ def main() -> int:
             log(f"  topic: {topic}")
 
         flags = list(BATCH_FLAGS)
-        cta = cta_variant_for_today()
-        if cta:
-            flags += ["--video-script-prompt", cta]
-            log("A/B variant: subscribe CTA ON")
-        else:
-            log("A/B variant: control (no CTA)")
         if args.mode == "render":
             # 渲染阶段不发布：成片留到分批发布任务里按节奏上传。
             for flag in ("--publish", "--delete-after-upload"):
