@@ -49,6 +49,20 @@ BATCH_FLAGS = [
 # 1.16%，对照组 172 / 1.27%，没有任何正向证据，反而占用了讲解时间。
 # 订阅瓶颈不在视频内部，而在频道页本身（简介、关键词、横幅均为空）。
 
+# 时长 A/B（2026-09-21 起）：留存数据显示观众平均只看约 23 秒，与视频长度
+# 基本无关，而成片平均 77 秒，结尾的答案大多没人看到。奇数日生成短版文案，
+# 偶数日为对照。所有发布时段都已在傍晚窗口内，按日分组不再受时段干扰。
+# 变体写入清单 base_params.video_script_prompt，按清单而非发布日期归组分析。
+SHORT_SCRIPT_PROMPT = (
+    "Keep the entire script between 90 and 110 words, so it runs about 40 "
+    "seconds when spoken. Cut background and preamble; state the answer early."
+)
+
+
+def length_variant_for_today() -> str | None:
+    """奇数日为短版，偶数日为对照组。"""
+    return SHORT_SCRIPT_PROMPT if datetime.now().day % 2 == 1 else None
+
 
 def log(message: str) -> None:
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -298,6 +312,12 @@ def main() -> int:
             log(f"  topic: {topic}")
 
         flags = list(BATCH_FLAGS)
+        short = length_variant_for_today()
+        if short:
+            flags += ["--video-script-prompt", short]
+            log("A/B variant: SHORT script (~40s)")
+        else:
+            log("A/B variant: control (default length)")
         if args.mode == "render":
             # 渲染阶段不发布：成片留到分批发布任务里按节奏上传。
             for flag in ("--publish", "--delete-after-upload"):

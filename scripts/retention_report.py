@@ -65,6 +65,50 @@ def fetch_retention(days: int = 28) -> list[dict]:
     return rows
 
 
+def _length_ab(rows: list[dict]) -> None:
+    """
+    按清单中记录的变体分组，而不是按发布日期推断：渲染在凌晨、发布在傍晚，
+    日期奇偶与变体并不总是一一对应。
+    """
+    import glob
+    import json
+
+    variant: dict[str, str] = {}
+    for path in glob.glob(os.path.join(ROOT, "storage", "batches", "*", "manifest.json")):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                manifest = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        prompt = (manifest.get("base_params") or {}).get("video_script_prompt") or ""
+        label = "SHORT (~40s)" if "90 and 110 words" in prompt else "control"
+        if manifest.get("created_at", "") < "2026-09-21":
+            continue
+        for item in manifest.get("items", []):
+            video_id = (item.get("youtube") or {}).get("video_id")
+            if video_id:
+                variant[video_id] = label
+
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        label = variant.get(row["video"])
+        if label:
+            groups.setdefault(label, []).append(row)
+    print("\nLENGTH A/B (started 2026-09-21)")
+    if not groups:
+        print("  no test videos have analytics yet (data lags ~48h)")
+        return
+    for label, group in sorted(groups.items()):
+        views = [int(r["views"]) for r in group]
+        subs = sum(int(r.get("subscribersGained", 0)) for r in group)
+        print(
+            f"  {label:14} n={len(group):3}  view% {statistics.median(r['averageViewPercentage'] for r in group):4.0f}"
+            f"  median views {statistics.median(views):5.0f}  subs {subs:3}  subs/1k views {subs / max(1, sum(views)) * 1000:4.1f}"
+        )
+    if min(len(g) for g in groups.values()) < 20:
+        print("  (fewer than 20 per arm — too early to call)")
+
+
 def main() -> int:
     rows = fetch_retention()
     if not rows:
@@ -80,6 +124,7 @@ def main() -> int:
     print("\nLOWEST RETENTION (what loses them)")
     for r in sorted(rows, key=lambda r: r["averageViewPercentage"])[:6]:
         print(f"  {r['averageViewPercentage']:5.0f}%  {int(r['views']):>5} views  {(r['subject'] or r['video'])[:50]}")
+    _length_ab(rows)
     print("\nHIGH VIEWS, LOW RETENTION (clickbait risk — algorithm will stop pushing)")
     med = statistics.median(pct)
     for r in sorted(rows, key=lambda r: -r["views"])[:20]:
