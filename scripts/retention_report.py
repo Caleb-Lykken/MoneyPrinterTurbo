@@ -9,6 +9,7 @@ Shorts 推荐主要看观众是否看完，而不是点了多少次。播放量�
 from __future__ import annotations
 
 import os
+import re
 import statistics
 import sys
 from datetime import datetime, timedelta, timezone
@@ -32,15 +33,30 @@ def fetch_retention(days: int = 28) -> list[dict]:
     )
     end = datetime.now(timezone.utc).date()
     start = end - timedelta(days=days)
-    response = analytics.reports().query(
-        ids="channel==MINE",
-        startDate=start.isoformat(),
-        endDate=end.isoformat(),
-        metrics="views,averageViewPercentage,averageViewDuration,likes,subscribersGained",
-        dimensions="video",
-        sort="-views",
-        maxResults=200,
-    ).execute()
+    try:
+        response = analytics.reports().query(
+            ids="channel==MINE",
+            startDate=start.isoformat(),
+            endDate=end.isoformat(),
+            metrics="views,averageViewPercentage,averageViewDuration,likes,subscribersGained",
+            dimensions="video",
+            sort="-views",
+            maxResults=200,
+        ).execute()
+    except modules["HttpError"] as exc:
+        body = getattr(exc, "content", b"")
+        body = body.decode("utf-8", "replace") if isinstance(body, bytes) else str(body)
+        # 授权范围与"项目是否启用该 API"是两回事：token 有 analytics 权限，
+        # 但 Cloud 项目里没开 YouTube Analytics API 时同样返回 403。
+        if "accessNotConfigured" in body or "has not been used in project" in body:
+            match = re.search(r"https://console\.developers\.google\.com/apis/api/youtubeanalytics[^\s\"']+", body)
+            link = match.group(0) if match else "https://console.cloud.google.com/apis/library/youtubeanalytics.googleapis.com"
+            raise SystemExit(
+                "The YouTube Analytics API is not enabled in your Google Cloud project.\n"
+                "This is separate from the YouTube Data API. Enable it here, wait a few\n"
+                f"minutes, then re-run:\n  {link}"
+            ) from exc
+        raise
     headers = [h["name"] for h in response.get("columnHeaders", [])]
     rows = [dict(zip(headers, row)) for row in response.get("rows", [])]
     subjects = {r["video_id"]: r["subject"] for r in youtube_stats.collect_published_videos()}

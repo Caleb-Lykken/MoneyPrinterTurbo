@@ -398,6 +398,10 @@ topics below, which performed well.
 8. Phrase each topic as a declarative statement ("The knot that never slips on
    braid"), not a question ("What knot should you use?"). Declarative titles
    earn roughly 2.5x the views of questions on this channel.
+9. Where it fits naturally, frame the topic around a specific MISTAKE or FAILURE
+   an angler makes and its consequence: "The overfilled spool mistake behind
+   every wind knot", "The snap swivel that kills your lure's action". Problem
+   framing earns ~2.6x neutral explanations at the same upload hour.
 
 ## Output example
 ["Why bass strike lures at dawn","The knot that never slips on braid"]
