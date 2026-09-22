@@ -290,12 +290,14 @@ FALLBACK_SPECIES = (
     "pompano", "cobia", "triggerfish",
 )
 
+# 旧句式（"How fishermen catch X" 等）中位播放量仅 52，而研究选题为 133。
+# 改为本频道已验证更有效的形式：陈述句 + 具体装备 + 常见错误。
 FALLBACK_TEMPLATES = (
-    "How fishermen catch {species}",
-    "How to fish for {species}: gear, bait and timing",
-    "Where {species} hide and how to find them",
-    "What {species} eat and how to match it",
-    "The best time of year to fish for {species}",
+    "The hook size mistake that costs you {species}",
+    "The line mistake that loses {species} at the net",
+    "The rig that {species} anglers get wrong most often",
+    "The drag setting that lands more {species}",
+    "The lure mistake that spooks {species}",
 )
 
 
@@ -364,6 +366,7 @@ def suggest_topics(
     if not winners and not reference_titles:
         return []
 
+    candidate_count = int(count * 1.5) + 2
     winner_block = "\n".join(f"- {item}" for item in winners[:10])
     reference_block = "\n".join(f"- {item}" for item in (reference_titles or [])[:10])
 
@@ -371,8 +374,8 @@ def suggest_topics(
 # Role: YouTube Shorts topic strategist
 
 ## Goal
-Propose {count} new short-video topics that follow the same patterns as the
-topics below, which performed well.
+Propose {candidate_count} new short-video topics that follow the same patterns
+as the topics below, which performed well.
 
 ## Topics that performed well
 {winner_block or "(none provided)"}
@@ -382,7 +385,7 @@ topics below, which performed well.
 
 ## Constraints
 1. Respond ONLY with a single valid minified JSON array of strings.
-2. Exactly {count} items.
+2. Exactly {candidate_count} items.
 3. Each item is a concrete video topic, at most 80 characters, in English.
 4. Do not repeat any topic listed above, and do not restate the same idea twice.
 5. Prefer specific, curiosity-driven angles over generic category names.
@@ -414,6 +417,8 @@ Catch" (promises footage).
 
     try:
         response = llm._generate_response(prompt)
+        # 多要候选：判重与"承诺画面"过滤会丢掉一部分，候选不够时会落到
+        # 表现更差的兜底句式上。
     except Exception as exc:
         logger.warning(f"topic suggestion failed: {exc}")
         return []
