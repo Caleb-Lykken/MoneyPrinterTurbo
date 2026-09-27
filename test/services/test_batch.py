@@ -401,6 +401,38 @@ class TestBgmRotation(BatchRunTestCase):
         }
         self.assertEqual(before, after)
 
+    def test_unreadable_source_file_reuses_the_managed_copy(self):
+        """
+        回归用例：源目录在 iCloud 等同步盘上时，读取会间歇性抛出 EDEADLK。
+        2026-09-24 起整批渲染因此连续三晚失败，积压清空后发布随之停摆。
+        """
+        batch.prepare_bgm_tracks(self.music_dir)  # 先正常复制一次
+
+        with patch("filecmp.cmp", side_effect=OSError(11, "Resource deadlock avoided")):
+            tracks = batch.prepare_bgm_tracks(self.music_dir)
+
+        self.assertEqual(tracks, ["track-1.m4a", "track-2.m4a"])
+
+    def test_unreadable_source_directory_falls_back_to_managed_tracks(self):
+        batch.prepare_bgm_tracks(self.music_dir)
+
+        real_listdir = os.listdir
+
+        def listdir(path):
+            if os.path.abspath(path) == os.path.abspath(self.music_dir):
+                raise OSError(11, "Resource deadlock avoided")
+            return real_listdir(path)
+
+        with patch("os.listdir", side_effect=listdir):
+            tracks = batch.prepare_bgm_tracks(self.music_dir)
+
+        self.assertEqual(sorted(tracks), ["track-1.m4a", "track-2.m4a"])
+
+    def test_unreadable_directory_with_no_managed_copy_is_an_input_error(self):
+        with patch("os.listdir", side_effect=OSError(11, "deadlock")):
+            with self.assertRaises(batch.BatchInputError):
+                batch.prepare_bgm_tracks(self.music_dir)
+
     def test_directory_without_audio_is_rejected(self):
         empty = os.path.join(self._tmp.name, "empty")
         os.makedirs(empty, exist_ok=True)

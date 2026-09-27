@@ -86,9 +86,32 @@ def prepare_bgm_tracks(bgm_dir: str) -> list[str]:
     if not os.path.isdir(directory):
         raise BatchInputError(f"background music directory does not exist: {bgm_dir}")
 
+    # 受管目录中已有的曲目：源目录整体不可读时（同步盘离线、外置盘未挂载）
+    # 仍然可以继续使用，不必让整批渲染失败。
+    try:
+        already_managed = [
+            name
+            for name in sorted(os.listdir(bgm_service.uploaded_bgm_dir(create=True)))
+            if Path(name).suffix.lower() in bgm_service.SUPPORTED_BGM_EXTENSIONS
+        ]
+    except OSError:
+        already_managed = []
+    try:
+        source_names = sorted(os.listdir(directory), key=str.lower)
+    except OSError as exc:
+        if already_managed:
+            logger.warning(
+                f"cannot read {directory} ({exc}); using {len(already_managed)} "
+                "track(s) already in managed storage"
+            )
+            return already_managed
+        raise BatchInputError(
+            f"cannot read background music directory {directory}: {exc}"
+        ) from exc
+
     managed_dir = bgm_service.uploaded_bgm_dir(create=True)
     tracks: list[str] = []
-    for name in sorted(os.listdir(directory), key=str.lower):
+    for name in source_names:
         source = os.path.join(directory, name)
         if not os.path.isfile(source):
             continue
@@ -102,10 +125,22 @@ def prepare_bgm_tracks(bgm_dir: str) -> list[str]:
             continue
 
         target = os.path.join(managed_dir, safe_name)
-        if os.path.isfile(target) and filecmp.cmp(source, target, shallow=False):
-            # 已经复制过同一份文件，直接复用，避免每次运行都产生新副本。
-            tracks.append(safe_name)
-            continue
+        if os.path.isfile(target):
+            try:
+                identical = filecmp.cmp(source, target, shallow=False)
+            except OSError as exc:
+                # 源目录可能位于 iCloud 等同步盘上，读取会间歇性抛出
+                # EDEADLK 之类的错误。去重比对失败不应中断整批渲染：
+                # 受管目录下的同名文件本来就是本函数复制过去的，直接复用。
+                logger.warning(
+                    f"cannot compare background music {name!r} ({exc}); "
+                    "reusing the copy already in managed storage"
+                )
+                identical = True
+            if identical:
+                # 已经复制过同一份文件，直接复用，避免每次运行都产生新副本。
+                tracks.append(safe_name)
+                continue
 
         if os.path.isfile(target):
             # 同名但内容不同：加内容指纹后缀，不覆盖既有曲目。
@@ -117,7 +152,12 @@ def prepare_bgm_tracks(bgm_dir: str) -> list[str]:
             target = os.path.join(managed_dir, safe_name)
 
         if not os.path.isfile(target):
-            shutil.copy2(source, target)
+            try:
+                shutil.copy2(source, target)
+            except OSError as exc:
+                # 单个曲目复制失败同样不应中断整批渲染。
+                logger.warning(f"skipping background music {name!r}: {exc}")
+                continue
             logger.info(
                 f"copied background music into managed storage: {source} -> {target}"
             )
